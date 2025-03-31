@@ -10,6 +10,7 @@ import shutil
 import sys
 import tempfile
 from typing import Tuple
+import winreg
 
 
 # 配置日志
@@ -28,7 +29,7 @@ def setup_logging() -> logging.Logger:
 
 logger = setup_logging()
 
-
+# KEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{DADADADA-ADAD-ADAD-ADAD-ADADADADADAD}}_is1\InstallLocation
 def get_cursor_paths() -> Tuple[str, str]:
     """
     根据不同操作系统获取 Cursor 相关路径
@@ -72,14 +73,29 @@ def get_cursor_paths() -> Tuple[str, str]:
         raise OSError("在 Linux 系统上未找到 Cursor 安装路径")
 
     base_path = paths_map[system]["base"]
-    # 判断Windows是否存在这个文件夹,如果不存在,提示需要创建软连接后重试
-    if system  == "Windows":
+    # 判断Windows是否存在这个文件夹,如果不存在,尝试从注册表获取安装路径
+    if system == "Windows":
+        try:
+            # 尝试从注册表读取安装路径
+            key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{DADADADA-ADAD-ADAD-ADAD-ADADADADADAD}}_is1"
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                install_location = winreg.QueryValueEx(key, "InstallLocation")[0]
+                if install_location:
+                    # 安装路径下的resources/app目录
+                    base_path = os.path.join(install_location, "resources", "app")
+                    logger.info(f"从注册表获取到Cursor安装路径: {base_path}")
+        except Exception as e:
+            logger.warning(f"从注册表获取Cursor安装路径失败: {str(e)}")
+            
+        # 如果路径不存在，提示创建软链接
         if not os.path.exists(base_path):
-            logging.info('可能您的Cursor不是默认安装路径,请创建软连接,命令如下:')
-            logging.info('cmd /c mklink /d "C:\\Users\\<username>\\AppData\\Local\\Programs\\Cursor" "默认安装路径"')
-            logging.info('例如:')
-            logging.info('cmd /c mklink /d "C:\\Users\\<username>\\AppData\\Local\\Programs\\Cursor" "D:\\SoftWare\\cursor"')
+            logger.info('未找到Cursor安装路径,请创建软连接,命令如下:')
+            logger.info('cmd /c mklink /d "C:\\Users\\<username>\\AppData\\Local\\Programs\\Cursor" "默认安装路径"')
+            logger.info('例如:')
+            logger.info('cmd /c mklink /d "C:\\Users\\<username>\\AppData\\Local\\Programs\\Cursor" "D:\\SoftWare\\cursor"')
             input("\n程序执行完毕，按回车键退出...")
+            sys.exit(1)
+            
     return (
         os.path.join(base_path, paths_map[system]["package"]),
         os.path.join(base_path, paths_map[system]["main"]),
